@@ -70,88 +70,353 @@ Internet → Nginx :443
 
 ## 环境要求
 
-| 组件 | 最低版本 |
-|------|---------|
-| Node.js | >= 18 |
-| npm | >= 9 |
-| Python | >= 3.9 |
-| Nginx | >= 1.20 |
-| PM2 | >= 5 |
-| Hermes Agent | 已安装于 `~/.local/bin/hermes` |
+| 组件 | 最低版本 | 检查命令 |
+|------|---------|---------|
+| Node.js | >= 18 | `node --version` |
+| npm | >= 9 | `npm --version` |
+| Python | >= 3.9 | `python3 --version` |
+| pip3 | >= 21 | `python3 -m pip --version` |
+| Nginx | >= 1.20 | `nginx -v` |
+| PM2 | >= 5 | `pm2 --version`（未安装则 `npm install -g pm2`） |
+| Hermes Agent | 已安装 | `~/.local/bin/hermes --version`（必须预先安装） |
 
-## 快速开始
+---
 
-### 1. 安装依赖
+## 部署指南
+
+### 第一步：获取源码
 
 ```bash
+git clone git@github.com:YYK1918/hermes-dashboard.git
 cd hermes-dashboard
+```
 
-# Python
-pip3 install fastapi uvicorn httpx bcrypt pyjwt pyyaml
+### 第二步：安装依赖
 
-# Node
+```bash
+# Python 依赖（共 6 个核心包）
+pip3 install -r requirements.txt
+
+# 验证
+python3 -c "import fastapi, uvicorn, httpx, jwt, bcrypt, yaml; print('Python OK')"
+
+# Node 依赖
 npm install
 ```
 
-### 2. 构建前端
+### 第三步：构建前端
 
 ```bash
 npm run build
 ```
 
-### 3. 配置 PM2
+预期输出：
 
-编辑 `ecosystem.config.json`，设置 `API_SERVER_KEY` 和 `NEXT_PUBLIC_API_URL`：
+```
+Route (app)
+┌ ○ /
+├ ○ /chat
+├ ○ /rooms
+├ ○ /models
+├ ○ /sessions
+├ ○ /skills
+├ ○ /tokens
+├ ○ /cron
+├ ○ /login
+└ ○ /_not-found
+
+○  (Static)  prerendered as static content
+```
+
+### 第四步：配置环境变量
+
+编辑 `ecosystem.config.json`，修改以下两项：
 
 ```json
 {
-  "apps": [
-    {
-      "name": "hermes-api",
-      "script": "server/api.py",
-      "interpreter": "python3",
-      "cwd": "/root/hermes-dashboard",
-      "env": {
-        "HERMES_NO_COLOR": "1",
-        "API_SERVER_KEY": "你的Key"
-      },
-      "autorestart": true
-    },
-    {
-      "name": "hermes-dashboard",
-      "script": "node_modules/.bin/next",
-      "args": "start -p 3000",
-      "cwd": "/root/hermes-dashboard",
-      "env": {
-        "NODE_ENV": "production",
-        "NEXT_PUBLIC_API_URL": "https://你的域名"
-      }
-    }
-  ]
+  "env": {
+    "API_SERVER_KEY": "填入一个随机字符串作为内部 API 密钥"
+  }
 }
 ```
 
-启动：
+```json
+{
+  "env": {
+    "NEXT_PUBLIC_API_URL": "https://你的域名（如 app.example.com）"
+  }
+}
+```
+
+- `API_SERVER_KEY`：任意随机字符串，用于内部通信
+- `NEXT_PUBLIC_API_URL`：用户访问的完整 URL（含 https://），本地测试可设为 `http://localhost:8643`
+
+> ⚠️ 如果仅在本机测试，将 `NEXT_PUBLIC_API_URL` 留空或设为 `http://localhost:8643`
+
+### 第五步：启动服务
 
 ```bash
+# 安装 PM2（如未安装）
+npm install -g pm2
+
+# 启动两个进程：hermes-api (FastAPI) + hermes-dashboard (Next.js)
 pm2 start ecosystem.config.json
-pm2 save
+
+# 查看状态，确认两个进程均为 online
+pm2 status
 ```
 
-### 4. 配置 Nginx
+预期输出：
+
+```
+┌────┬──────────────────┬─────────┬─────────┬──────────┐
+│ id │ name             │ status  │ cpu     │ mem      │
+├────┼──────────────────┼─────────┼─────────┼──────────┤
+│ 0  │ hermes-api       │ online  │ 0%      │ 55mb     │
+│ 1  │ hermes-dashboard │ online  │ 0%      │ 140mb    │
+└────┴──────────────────┴─────────┴─────────┴──────────┘
+```
+
+### 第六步：设置开机自启
 
 ```bash
-cp nginx-example.conf /etc/nginx/conf.d/hermes-dashboard.conf
-# 编辑域名和 SSL 证书路径
-nginx -t && nginx -s reload
+pm2 save
+pm2 startup
+# 按屏幕提示执行输出的 sudo 命令
 ```
 
-### 5. 登录
+### 第七步：配置 Nginx 反向代理
+
+#### 7.1 安装 Nginx（如未安装）
+
+```bash
+# CentOS/RHEL
+yum install -y nginx
+
+# Ubuntu/Debian
+apt install -y nginx
+```
+
+#### 7.2 申请 SSL 证书（推荐 Let's Encrypt）
+
+```bash
+# 安装 certbot
+yum install -y certbot python3-certbot-nginx   # CentOS
+# 或
+apt install -y certbot python3-certbot-nginx   # Ubuntu
+
+# 申请证书（替换为你的域名）
+certbot --nginx -d 你的域名
+```
+
+如果暂时没有域名或证书，可以先使用 HTTP 测试（将 Nginx 配置中的 443 部分注释掉，保留 80 端口配置）。
+
+#### 7.3 写入 Nginx 配置
+
+```bash
+# 复制模板
+cp nginx-example.conf /etc/nginx/conf.d/hermes-dashboard.conf
+
+# 编辑模板，替换以下内容：
+#   your-domain.com → 你的域名
+#   /etc/nginx/ssl/your-domain.com.pem → 你的证书路径
+#   /etc/nginx/ssl/your-domain.com.key → 你的私钥路径
+vim /etc/nginx/conf.d/hermes-dashboard.conf
+```
+
+Nginx 配置中**必须保留**的关键项：
+
+```nginx
+# 对话和聊天室端点必须设置长超时 + 禁用缓冲
+location /api/chat {
+    proxy_read_timeout 360s;
+    proxy_buffering off;
+}
+location /api/rooms {
+    proxy_read_timeout 360s;
+    proxy_buffering off;
+}
+```
+
+> ⚠️ 缺少以上配置会导致 SSE 流式中断，返回 HTML 504 错误。
+
+#### 7.4 验证并重载
+
+```bash
+# 检查配置语法
+nginx -t
+
+# 应输出：syntax is ok / test is successful
+
+# 重载配置（不停服）
+nginx -s reload
+
+# 启动 Nginx（如未启动）
+systemctl start nginx
+systemctl enable nginx
+```
+
+#### 7.5 配置防火墙
+
+```bash
+# 开放 80 (HTTP) 和 443 (HTTPS) 端口
+firewall-cmd --permanent --add-service=http
+firewall-cmd --permanent --add-service=https
+firewall-cmd --reload
+
+# 如使用 iptables
+iptables -A INPUT -p tcp --dport 80 -j ACCEPT
+iptables -A INPUT -p tcp --dport 443 -j ACCEPT
+```
+
+> ⚠️ 端口 3000 和 8643 只应监听 localhost，不对外开放。所有外部流量通过 Nginx 代理。
+
+### 第八步：验证部署
+
+```bash
+# 测试 API 健康检查（本地）
+curl http://localhost:8643/api/health
+# 应输出：{"ok":true,...}
+
+# 测试前端（通过 Nginx）
+curl -s -o /dev/null -w "%{http_code}" https://你的域名/
+# 应输出：200
+```
+
+### 第九步：首次登录
 
 ```
 URL:   https://你的域名/login
 用户:  admin
 密码:  hermes2026
+```
+
+> ⚠️ **登录后请立即修改密码！** 密码哈希存储在 `~/.hermes/dashboard-auth.json`，删除此文件可重置密码。
+
+修改密码：
+
+```bash
+# 获取 token
+TOKEN=$(curl -s -X POST https://你的域名/api/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"username":"admin","password":"hermes2026"}' | python3 -c "import sys,json; print(json.load(sys.stdin)['token'])")
+
+# 修改密码
+curl -s -X POST https://你的域名/api/auth/change-password \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $TOKEN" \
+  -d '{"old_password":"hermes2026","new_password":"你的新密码"}'
+```
+
+---
+
+## 离线部署
+
+如果目标服务器无法访问外网，使用离线安装包：
+
+### 1. 准备离线包
+
+```bash
+# 在有网络的机器上下载 Python 依赖
+pip3 download -d offline-deps/python fastapi uvicorn httpx bcrypt pyjwt pyyaml
+
+# 执行 npm install + npm run build 生成 node_modules 和 .next
+npm install && npm run build
+
+# 打包（包含 node_modules 和 .next）
+tar -czf hermes-dashboard-offline.tar.gz hermes-dashboard/
+```
+
+### 2. 在目标服务器安装
+
+```bash
+tar -xzf hermes-dashboard-offline.tar.gz
+cd hermes-dashboard
+chmod +x install.sh
+./install.sh
+```
+
+安装脚本会自动：
+- 使用本地 `.whl` 文件离线安装 Python 依赖
+- 使用内置 `node_modules`（无需 `npm install`）
+- 使用内置 `.next` 构建产物（无需 `npm run build`）
+- 配置 PM2 并启动服务
+
+> ⚠️ 离线包基于构建时的服务器架构（x86_64/Linux），目标服务器必须同架构。
+
+---
+
+## 配置 Let's Encrypt SSL 证书自动续期
+
+Let's Encrypt 证书有效期 90 天，设置自动续期：
+
+```bash
+# certbot 安装后默认已添加 systemd timer
+systemctl status certbot.timer
+
+# 手动测试续期
+certbot renew --dry-run
+
+# 续期后自动重载 Nginx
+# 确认 /etc/letsencrypt/renewal/ 目录下配置中有：
+# renew_hook = nginx -s reload
+```
+
+---
+
+## 更新部署
+
+拉取最新代码后重新构建：
+
+```bash
+cd hermes-dashboard
+git pull
+npm install            # 如有新依赖
+npm run build          # 重新构建前端
+pm2 restart all        # 重启服务
+```
+
+---
+
+## 常见问题
+
+### Q: 对话页报错 "Unexpected token '<'" 或显示 HTML
+
+**原因**: Nginx 超时返回 504 页面。  
+**解决**: 检查 `/etc/nginx/conf.d/hermes-dashboard.conf` 中 `/api/chat` 和 `/api/rooms` 的 `proxy_read_timeout` 是否设为 360s，且 `proxy_buffering off`。
+
+### Q: 聊天室自动运行 1-2 轮就结束
+
+**原因**: Nginx `/api/rooms` 超时不足。  
+**解决**: 同上，确保 `/api/rooms` 有独立的 location 块配 360s 超时。
+
+### Q: 聊天室没有输出内容
+
+**原因**: SSE 缓冲未关闭。  
+**解决**: 确保 `proxy_buffering off` 在 `/api/rooms` 中配置。
+
+### Q: 自定义模型不生效
+
+**原因**: Provider 名称使用了内置名称（deepseek/anthropic/openai/openrouter/google）。  
+**解决**: 使用自定义名称，如 `minimax`、`local-llm` 等。
+
+### Q: pip install bcrypt 报错
+
+**原因**: 部分系统缺少编译工具。  
+**解决**: `yum install -y gcc python3-devel` 或 `apt install -y build-essential python3-dev`。
+
+### Q: 502 Bad Gateway
+
+**原因**: 后端服务未启动。  
+**解决**: `pm2 status` 检查两个进程，`pm2 logs` 查看错误日志。
+
+### Q: 端口 3000 或 8643 被占用
+
+```bash
+# 查看占用进程
+ss -tlnp | grep -E '3000|8643'
+# 释放端口
+fuser -k 3000/tcp
 ```
 
 ## API 端点
