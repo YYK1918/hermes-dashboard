@@ -324,13 +324,13 @@ pip3 download -d offline-deps/python fastapi uvicorn httpx bcrypt pyjwt pyyaml
 npm install && npm run build
 
 # 打包（包含 node_modules 和 .next）
-tar -czf hermes-dashboard-offline.tar.gz hermes-dashboard/
+tar -czf hermes-dashboard-v2.1.1-offline.tar.gz hermes-dashboard/
 ```
 
 ### 2. 在目标服务器安装
 
 ```bash
-tar -xzf hermes-dashboard-offline.tar.gz
+tar -xzf hermes-dashboard-v2.1.1-offline.tar.gz
 cd hermes-dashboard
 chmod +x install.sh
 ./install.sh
