@@ -158,7 +158,9 @@ if [ -f "$HOME/.hermes/.env" ]; then
 fi
 sed -i "s|\"API_SERVER_KEY\": \".*\"|\"API_SERVER_KEY\": \"$API_KEY\"|" ecosystem.config.json 2>/dev/null || true
 
-read -p "输入域名 (如 app.example.com，回车跳过): " DOMAIN
+read -p "输入域名 (如 app.example.com，不要加 http://，回车跳过): " DOMAIN
+# 自动去掉用户可能输入的协议前缀
+DOMAIN=$(echo "$DOMAIN" | sed 's|^https\?://||; s|:[0-9]*$||; s|/.*$||')
 [ -n "$DOMAIN" ] && sed -i "s|\"NEXT_PUBLIC_API_URL\": \".*\"|\"NEXT_PUBLIC_API_URL\": \"https://$DOMAIN\"|" ecosystem.config.json
 
 # 更新 Python 解释器路径（sed 特殊字符转义）
@@ -174,7 +176,7 @@ echo ""
 
 # ── Nginx 提示 ──
 if [ -f "$SRC_DIR/nginx-example.conf" ]; then
-    [ -n "$DOMAIN" ] && sed -i "s/your-domain.com/$DOMAIN/g" "$SRC_DIR/nginx-example.conf"
+    [ -n "$DOMAIN" ] && sed -i "s|your-domain.com|$DOMAIN|g" "$SRC_DIR/nginx-example.conf"
     info "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
     info "Nginx 模板: $SRC_DIR/nginx-example.conf"
     info "执行以下命令完成配置:"
