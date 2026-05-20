@@ -101,12 +101,27 @@ echo ""
 
 # ── Python 依赖 ──
 WHEEL_DIR="$SRC_DIR/offline-deps/python"
-if [ -d "$WHEEL_DIR" ] && ls "$WHEEL_DIR"/*.whl >/dev/null 2>&1; then
-    info "离线安装 Python 依赖 (使用 $PYTHON_BIN)..."
-    $PYTHON_BIN -m pip install --no-index --find-links="$WHEEL_DIR" fastapi uvicorn httpx bcrypt pyjwt pyyaml 2>&1 | tail -3
-else
-    info "在线安装 Python 依赖..."
-    $PYTHON_BIN -m pip install -r requirements.txt 2>&1 | tail -3
+info "安装 Python 依赖 (使用 $PYTHON_BIN)..."
+
+# Try normal install, fall back to --break-system-packages for PEP 668
+_pip_install() {
+    if [ -d "$WHEEL_DIR" ] && ls "$WHEEL_DIR"/*.whl >/dev/null 2>&1; then
+        $PYTHON_BIN -m pip install --no-index --find-links="$WHEEL_DIR" fastapi uvicorn httpx bcrypt pyjwt pyyaml 2>&1
+    else
+        $PYTHON_BIN -m pip install -r "$SRC_DIR/requirements.txt" 2>&1
+    fi
+}
+
+PIP_OUT=$(_pip_install) || true
+if echo "$PIP_OUT" | grep -q "externally-managed-environment\|--break-system-packages"; then
+    warn "检测到 PEP 668 保护，使用 --break-system-packages"
+    if [ -d "$WHEEL_DIR" ] && ls "$WHEEL_DIR"/*.whl >/dev/null 2>&1; then
+        $PYTHON_BIN -m pip install --break-system-packages --no-index --find-links="$WHEEL_DIR" fastapi uvicorn httpx bcrypt pyjwt pyyaml 2>&1 | tail -3
+    else
+        $PYTHON_BIN -m pip install --break-system-packages -r "$SRC_DIR/requirements.txt" 2>&1 | tail -3
+    fi
+elif [ -n "$PIP_OUT" ]; then
+    echo "$PIP_OUT" | tail -3
 fi
 $PYTHON_BIN -c "import fastapi, uvicorn, httpx, jwt, bcrypt, yaml; print('  Python 依赖 OK')" || error "Python 依赖安装失败"
 echo ""
@@ -141,9 +156,10 @@ sed -i "s|\"API_SERVER_KEY\": \".*\"|\"API_SERVER_KEY\": \"$API_KEY\"|" ecosyste
 read -p "输入域名 (如 app.example.com，回车跳过): " DOMAIN
 [ -n "$DOMAIN" ] && sed -i "s|\"NEXT_PUBLIC_API_URL\": \".*\"|\"NEXT_PUBLIC_API_URL\": \"https://$DOMAIN\"|" ecosystem.config.json
 
-# 更新 Python 解释器路径
-ESC_PATH=$(echo "$(command -v $PYTHON_BIN)" | sed 's/\//\\\//g')
-sed -i "s|\"interpreter\": \"python3\"|\"interpreter\": \"$ESC_PATH\"|" ecosystem.config.json 2>/dev/null || true
+# 更新 Python 解释器路径（sed 特殊字符转义）
+PY_FULL=$(command -v "$PYTHON_BIN")
+ESC_PATH=$(echo "$PY_FULL" | sed 's/\//\\\//g')
+sed -i "s|\"interpreter\": \"[^\"]*\"|\"interpreter\": \"$ESC_PATH\"|" ecosystem.config.json 2>/dev/null || true
 
 # ── 启动 ──
 info "启动服务..."
