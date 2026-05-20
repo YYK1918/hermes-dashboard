@@ -158,10 +158,18 @@ if [ -f "$HOME/.hermes/.env" ]; then
 fi
 sed -i "s|\"API_SERVER_KEY\": \".*\"|\"API_SERVER_KEY\": \"$API_KEY\"|" ecosystem.config.json 2>/dev/null || true
 
-read -p "输入域名 (如 app.example.com，不要加 http://，回车跳过): " DOMAIN
-# 自动去掉用户可能输入的协议前缀
-DOMAIN=$(echo "$DOMAIN" | sed 's|^https\?://||; s|:[0-9]*$||; s|/.*$||')
-[ -n "$DOMAIN" ] && sed -i "s|\"NEXT_PUBLIC_API_URL\": \".*\"|\"NEXT_PUBLIC_API_URL\": \"https://$DOMAIN\"|" ecosystem.config.json
+read -p "访问地址 (如 app.example.com 或 192.168.1.1:8080，回车跳过): " DOMAIN
+# 自动去掉协议前缀
+DOMAIN=$(echo "$DOMAIN" | sed 's|^https\?://||; s|/.*$||')
+if [ -n "$DOMAIN" ]; then
+    # 检测端口：含 : 的是非标准端口，用 http；否则用 https
+    if echo "$DOMAIN" | grep -q ":"; then
+        SCHEME="http"
+    else
+        SCHEME="https"
+    fi
+    sed -i "s|\"NEXT_PUBLIC_API_URL\": \".*\"|\"NEXT_PUBLIC_API_URL\": \"$SCHEME://$DOMAIN\"|" ecosystem.config.json
+fi
 
 # 更新 Python 解释器路径（sed 特殊字符转义）
 PY_FULL=$(command -v "$PYTHON_BIN")
@@ -179,9 +187,12 @@ if [ -f "$SRC_DIR/nginx-example.conf" ]; then
     [ -n "$DOMAIN" ] && sed -i "s|your-domain.com|$DOMAIN|g" "$SRC_DIR/nginx-example.conf"
     info "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
     info "Nginx 模板: $SRC_DIR/nginx-example.conf"
-    info "执行以下命令完成配置:"
+    info "如需 SSL: 替换证书路径后执行:"
     info "  cp $SRC_DIR/nginx-example.conf /etc/nginx/conf.d/hermes-dashboard.conf"
     info "  nginx -t && nginx -s reload"
+    info ""
+    info "如 443 端口已占用，直接访问本地端口:"
+    info "  http://$(hostname -I 2>/dev/null | awk '{print $1}' || echo '127.0.0.1'):3000"
     info "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 fi
 
