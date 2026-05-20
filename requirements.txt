@@ -1,0 +1,6 @@
+fastapi>=0.100
+uvicorn>=0.25
+httpx>=0.25
+bcrypt>=4.0
+pyjwt>=2.8
+pyyaml>=5.4
