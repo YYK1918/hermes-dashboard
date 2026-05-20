@@ -84,265 +84,138 @@ Internet → Nginx :443
 
 ## 部署指南
 
-### 第一步：获取源码
+### 方式一：快速测试（无需 Nginx，5 分钟）
+
+适用于本机测试或内网环境，无需域名和 SSL。
+
+```bash
+# 1. 克隆
+git clone git@github.com:YYK1918/hermes-dashboard.git
+cd hermes-dashboard
+
+# 2. 安装依赖
+pip3 install -r requirements.txt
+npm install
+
+# 3. 构建
+npm run build
+
+# 4. 启动
+npm install -g pm2
+pm2 start ecosystem.config.json
+```
+
+然后直接访问：**`http://你的IP:3000/login`**
+
+> 端口 3000 直连时，前端自动将 API 请求指向 `localhost:8643`，无需配置 `NEXT_PUBLIC_API_URL`。
+
+---
+
+### 方式二：生产部署（Nginx + 域名 + SSL）
+
+#### 第一步：获取源码
 
 ```bash
 git clone git@github.com:YYK1918/hermes-dashboard.git
 cd hermes-dashboard
 ```
 
-### 第二步：安装依赖
+#### 第二步：安装依赖
 
 ```bash
-# Python 依赖（共 6 个核心包）
-pip3 install -r requirements.txt
-
-# 验证
+pip3 install -r requirements.txt     # Python
 python3 -c "import fastapi, uvicorn, httpx, jwt, bcrypt, yaml; print('Python OK')"
 
-# Node 依赖
-npm install
+npm install                           # Node
 ```
 
-### 第三步：构建前端
+#### 第三步：构建前端
 
 ```bash
 npm run build
 ```
 
-预期输出：
+预期输出所有路由标记为 `○ (Static)`。
 
-```
-Route (app)
-┌ ○ /
-├ ○ /chat
-├ ○ /rooms
-├ ○ /models
-├ ○ /sessions
-├ ○ /skills
-├ ○ /tokens
-├ ○ /cron
-├ ○ /login
-└ ○ /_not-found
+#### 第四步：配置环境变量
 
-○  (Static)  prerendered as static content
-```
+编辑 `ecosystem.config.json`：
 
-### 第四步：配置环境变量
+| 字段 | 说明 | 示例 |
+|------|------|------|
+| `API_SERVER_KEY` | 内部 API 密钥（随机字符串） | `my-secret-key-123` |
+| `NEXT_PUBLIC_API_URL` | 对外访问地址（Nginx 代理模式才需要） | `https://app.example.com` |
 
-编辑 `ecosystem.config.json`，修改以下两项：
+> 如果通过 Nginx 反代，设为 `https://你的域名`。
+> 如果直连端口 3000，**不要设置此项**——前端自动使用 `localhost:8643`。
 
-```json
-{
-  "env": {
-    "API_SERVER_KEY": "填入一个随机字符串作为内部 API 密钥"
-  }
-}
-```
-
-```json
-{
-  "env": {
-    "NEXT_PUBLIC_API_URL": "https://你的域名（如 app.example.com）"
-  }
-}
-```
-
-- `API_SERVER_KEY`：任意随机字符串，用于内部通信
-- `NEXT_PUBLIC_API_URL`：用户访问的完整 URL（含 https://），本地测试可设为 `http://localhost:8643`
-
-> ⚠️ 如果仅在本机测试，将 `NEXT_PUBLIC_API_URL` 留空或设为 `http://localhost:8643`
-
-### 第五步：启动服务
+#### 第五步：启动服务
 
 ```bash
-# 安装 PM2（如未安装）
-npm install -g pm2
-
-# 启动两个进程：hermes-api (FastAPI) + hermes-dashboard (Next.js)
 pm2 start ecosystem.config.json
-
-# 查看状态，确认两个进程均为 online
-pm2 status
-```
-
-预期输出：
-
-```
-┌────┬──────────────────┬─────────┬─────────┬──────────┐
-│ id │ name             │ status  │ cpu     │ mem      │
-├────┼──────────────────┼─────────┼─────────┼──────────┤
-│ 0  │ hermes-api       │ online  │ 0%      │ 55mb     │
-│ 1  │ hermes-dashboard │ online  │ 0%      │ 140mb    │
-└────┴──────────────────┴─────────┴─────────┴──────────┘
-```
-
-### 第六步：设置开机自启
-
-```bash
 pm2 save
-pm2 startup
-# 按屏幕提示执行输出的 sudo 命令
+pm2 startup    # 开机自启
 ```
 
-### 第七步：配置 Nginx 反向代理
-
-#### 7.1 安装 Nginx（如未安装）
+#### 第六步：配置 Nginx
 
 ```bash
-# CentOS/RHEL
-yum install -y nginx
-
-# Ubuntu/Debian
-apt install -y nginx
+cp nginx-example.conf /etc/nginx/conf.d/hermes-dashboard.conf
+# 替换 your-domain.com → 你的域名
+# 替换 SSL 证书路径
+nginx -t && nginx -s reload
 ```
 
-#### 7.2 申请 SSL 证书（推荐 Let's Encrypt）
+#### 第七步：申请 SSL
 
 ```bash
-# 安装 certbot
-yum install -y certbot python3-certbot-nginx   # CentOS
-# 或
-apt install -y certbot python3-certbot-nginx   # Ubuntu
-
-# 申请证书（替换为你的域名）
 certbot --nginx -d 你的域名
 ```
 
-如果暂时没有域名或证书，可以先使用 HTTP 测试（将 Nginx 配置中的 443 部分注释掉，保留 80 端口配置）。
-
-#### 7.3 写入 Nginx 配置
-
-```bash
-# 复制模板
-cp nginx-example.conf /etc/nginx/conf.d/hermes-dashboard.conf
-
-# 编辑模板，替换以下内容：
-#   your-domain.com → 你的域名
-#   /etc/nginx/ssl/your-domain.com.pem → 你的证书路径
-#   /etc/nginx/ssl/your-domain.com.key → 你的私钥路径
-vim /etc/nginx/conf.d/hermes-dashboard.conf
-```
-
-Nginx 配置中**必须保留**的关键项：
-
-```nginx
-# 对话和聊天室端点必须设置长超时 + 禁用缓冲
-location /api/chat {
-    proxy_read_timeout 360s;
-    proxy_buffering off;
-}
-location /api/rooms {
-    proxy_read_timeout 360s;
-    proxy_buffering off;
-}
-```
-
-> ⚠️ 缺少以上配置会导致 SSE 流式中断，返回 HTML 504 错误。
-
-#### 7.4 验证并重载
-
-```bash
-# 检查配置语法
-nginx -t
-
-# 应输出：syntax is ok / test is successful
-
-# 重载配置（不停服）
-nginx -s reload
-
-# 启动 Nginx（如未启动）
-systemctl start nginx
-systemctl enable nginx
-```
-
-#### 7.5 配置防火墙
-
-```bash
-# 开放 80 (HTTP) 和 443 (HTTPS) 端口
-firewall-cmd --permanent --add-service=http
-firewall-cmd --permanent --add-service=https
-firewall-cmd --reload
-
-# 如使用 iptables
-iptables -A INPUT -p tcp --dport 80 -j ACCEPT
-iptables -A INPUT -p tcp --dport 443 -j ACCEPT
-```
-
-> ⚠️ 端口 3000 和 8643 只应监听 localhost，不对外开放。所有外部流量通过 Nginx 代理。
-
-### 第八步：验证部署
-
-```bash
-# 测试 API 健康检查（本地）
-curl http://localhost:8643/api/health
-# 应输出：{"ok":true,...}
-
-# 测试前端（通过 Nginx）
-curl -s -o /dev/null -w "%{http_code}" https://你的域名/
-# 应输出：200
-```
-
-### 第九步：首次登录
+#### 第八步：首次登录
 
 ```
 URL:   https://你的域名/login
 用户:  admin
-密码:  hermes2026
-```
-
-> ⚠️ **登录后请立即修改密码！** 密码哈希存储在 `~/.hermes/dashboard-auth.json`，删除此文件可重置密码。
-
-修改密码：
-
-```bash
-# 获取 token
-TOKEN=$(curl -s -X POST https://你的域名/api/auth/login \
-  -H "Content-Type: application/json" \
-  -d '{"username":"admin","password":"hermes2026"}' | python3 -c "import sys,json; print(json.load(sys.stdin)['token'])")
-
-# 修改密码
-curl -s -X POST https://你的域名/api/auth/change-password \
-  -H "Content-Type: application/json" \
-  -H "Authorization: Bearer $TOKEN" \
-  -d '{"old_password":"hermes2026","new_password":"你的新密码"}'
+密码:  hermes2026    ← 登录后立即修改
 ```
 
 ---
 
-## 离线部署
+### 方式三：离线部署（无外网环境）
 
-如果目标服务器无法访问外网，使用离线安装包：
-
-### 1. 准备离线包
+**准备离线包**（在有网络的机器上）：
 
 ```bash
-# 在有网络的机器上下载 Python 依赖
 pip3 download -d offline-deps/python fastapi uvicorn httpx bcrypt pyjwt pyyaml
-
-# 执行 npm install + npm run build 生成 node_modules 和 .next
 npm install && npm run build
-
-# 打包（包含 node_modules 和 .next）
-tar -czf hermes-dashboard-v2.1.1-offline.tar.gz hermes-dashboard/
+tar -czf hermes-dashboard-offline.tar.gz hermes-dashboard/
 ```
 
-### 2. 在目标服务器安装
+> 离线包约 300MB，基于构建时的 CPU 架构和 glibc 版本。目标机器必须同架构。
+
+**在目标服务器安装**：
 
 ```bash
-tar -xzf hermes-dashboard-v2.1.1-offline.tar.gz
+tar -xzf hermes-dashboard-offline.tar.gz
 cd hermes-dashboard
 chmod +x install.sh
 ./install.sh
 ```
 
-安装脚本会自动：
-- 使用本地 `.whl` 文件离线安装 Python 依赖
-- 使用内置 `node_modules`（无需 `npm install`）
-- 使用内置 `.next` 构建产物（无需 `npm run build`）
-- 配置 PM2 并启动服务
+安装脚本会自动：离线 wheels → 失败则在线安装 → PEP 668 自动处理 → 启动服务。
 
 > ⚠️ 离线包基于构建时的服务器架构（x86_64/Linux），目标服务器必须同架构。
+
+### 访问模式说明
+
+| 模式 | 访问地址 | API 地址 | 需要 Nginx |
+|------|---------|---------|-----------|
+| 直连 | `http://IP:3000` | `localhost:8643` | 不需要 |
+| 反代 | `https://域名` | 同域名（Nginx 转发） | 需要 |
+| 自定义端口 | `http://IP:8080` | 同域名端口 | 需要（监听该端口） |
+
+端口 3000 直连时，无需配置 `NEXT_PUBLIC_API_URL`。自定义端口请在 Nginx 中配 `listen`。
 
 ---
 
