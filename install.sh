@@ -29,24 +29,18 @@ check_ver() {
     [ "$maj" -ge "$2" ] || { warn "$1 版本 $v < 需要 >= $2 (安装: $4)"; FAIL=1; }
 }
 
-# Python 版本检查（支持 python3.9+ 多版本共存）
+# Python 版本检查
 PYTHON_BIN=""
-for py in python3.13 python3.12 python3.11 python3.10 python3.9 python3; do
-    if command -v "$py" >/dev/null 2>&1; then
-        PY_VER=$("$py" -c "import sys; print(sys.version_info.minor)" 2>/dev/null || echo 0)
-        PY_MAJ=$("$py" -c "import sys; print(sys.version_info.major)" 2>/dev/null || echo 0)
-        if [ "$PY_MAJ" -ge 3 ] && [ "$PY_VER" -ge 9 ]; then
-            PYTHON_BIN="$py"; break
-        fi
-    fi
-done
-if [ -z "$PYTHON_BIN" ]; then
-    warn "Python >= 3.9 未找到"
-    warn "  当前版本: $($(command -v python3 || echo python3) --version 2>&1)"
+PY_VER=$(python3 -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')" 2>/dev/null || echo "0")
+PY_MAJ=$(echo "$PY_VER" | cut -d. -f1)
+PY_MIN=$(echo "$PY_VER" | cut -d. -f2)
+if [ "$PY_MAJ" -ge 3 ] && [ "$PY_MIN" -ge 9 ]; then
+    PYTHON_BIN="python3"
+    info "  Python: $(python3 --version 2>&1)"
+else
+    warn "Python >= 3.9 未找到 (当前 python3: $PY_VER)"
     warn "  安装: yum install -y python3.11 或 apt install -y python3.11"
     FAIL=1
-else
-    info "  Python: $($PYTHON_BIN --version 2>&1) ($PYTHON_BIN)"
 fi
 
 check_cmd node "Node.js >= 18"
@@ -170,11 +164,6 @@ if [ -n "$DOMAIN" ]; then
     fi
     sed -i "s|\"NEXT_PUBLIC_API_URL\": \".*\"|\"NEXT_PUBLIC_API_URL\": \"$SCHEME://$DOMAIN\"|" ecosystem.config.json
 fi
-
-# 更新 Python 解释器路径（sed 特殊字符转义）
-PY_FULL=$(command -v "$PYTHON_BIN")
-ESC_PATH=$(echo "$PY_FULL" | sed 's/\//\\\//g')
-sed -i "s|\"interpreter\": \"[^\"]*\"|\"interpreter\": \"$ESC_PATH\"|" ecosystem.config.json 2>/dev/null || true
 
 # ── 启动 ──
 info "启动服务..."
