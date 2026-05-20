@@ -1,5 +1,5 @@
 #!/bin/bash
-# Hermes Dashboard v2.1 — 离线安装脚本
+# Hermes Dashboard v2.1 — 安装脚本
 # 用法: chmod +x install.sh && ./install.sh
 
 set -e
@@ -11,47 +11,40 @@ error() { echo -e "${RED}[ERROR]${NC} $*"; exit 1; }
 
 echo ""
 echo "  ╔══════════════════════════════════════╗"
-echo "  ║   Hermes Dashboard v2.1  离线安装   ║"
+echo "  ║   Hermes Dashboard v2.1  安装       ║"
 echo "  ╚══════════════════════════════════════╝"
 echo ""
 
 # ── 环境检查 ──
 info "检查运行环境..."
-
 FAIL=0
-check_cmd() {
-    command -v "$1" >/dev/null 2>&1 || { warn "缺少 $1 ($2)"; FAIL=1; }
-}
-check_ver() {
-    local v; v=$("$1" "$3" 2>/dev/null | grep -oP '[\d]+(\.[\d]+)?' | head -1)
-    [ -n "$v" ] || { warn "无法检测 $1 版本"; return; }
-    local maj; maj=$(echo "$v" | cut -d. -f1)
-    [ "$maj" -ge "$2" ] || { warn "$1 版本 $v < 需要 >= $2 (安装: $4)"; FAIL=1; }
-}
 
-# Python 版本检查
+# Python: 找 >= 3.9 的版本
 PYTHON_BIN=""
-PY_VER=$(python3 -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')" 2>/dev/null || echo "0")
-PY_MAJ=$(echo "$PY_VER" | cut -d. -f1)
-PY_MIN=$(echo "$PY_VER" | cut -d. -f2)
-if [ "$PY_MAJ" -ge 3 ] && [ "$PY_MIN" -ge 9 ]; then
-    PYTHON_BIN="python3"
-    info "  Python: $(python3 --version 2>&1)"
-else
-    warn "Python >= 3.9 未找到 (当前 python3: $PY_VER)"
-    warn "  安装: yum install -y python3.11 或 apt install -y python3.11"
+for py in python3.13 python3.12 python3.11 python3.10 python3.9 python3; do
+    ver=$($py -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')" 2>/dev/null || echo "0")
+    maj=$(echo "$ver" | cut -d. -f1); min=$(echo "$ver" | cut -d. -f2)
+    if [ "$maj" -eq 3 ] && [ "$min" -ge 9 ]; then
+        PYTHON_BIN="$py"; PY_VER="$ver"; break
+    fi
+done
+if [ -z "$PYTHON_BIN" ]; then
+    warn "Python >= 3.9 未找到 (当前: $(python3 --version 2>&1 || echo 无))"
+    warn "  CentOS: yum install -y python3.11"
+    warn "  Ubuntu: apt install -y python3.11"
     FAIL=1
+else
+    info "  Python: $PY_VER ($PYTHON_BIN)"
 fi
 
-check_cmd node "Node.js >= 18"
-check_cmd npm  "npm"
-check_cmd nginx "Nginx >= 1.20"
+command -v node  >/dev/null 2>&1 || { warn "需要 Node.js >= 18"; FAIL=1; }
+command -v nginx >/dev/null 2>&1 || { warn "需要 Nginx"; FAIL=1; }
 
-# Node 版本
-NODE_VER=$(node -v 2>/dev/null | grep -oP '\d+' | head -1)
-[ -n "$NODE_VER" ] && [ "$NODE_VER" -ge 18 ] || { warn "Node.js >= 18 需要，当前: $(node -v 2>&1)"; FAIL=1; }
+# Node version
+NV=$(node -v 2>/dev/null | grep -oP '\d+' | head -1)
+[ -n "$NV" ] && [ "$NV" -ge 18 ] || { warn "Node.js >= 18 需要，当前: $(node -v 2>&1)"; FAIL=1; }
 
-# Hermes Agent
+# Hermes
 HERMES_OK=0
 for p in "$HOME/.local/bin/hermes" "/usr/local/bin/hermes" "/usr/bin/hermes"; do
     [ -x "$p" ] && { HERMES_OK=1; info "  Hermes: $p"; break; }
@@ -59,17 +52,10 @@ done
 [ "$HERMES_OK" -eq 0 ] && { warn "Hermes Agent 未安装"; FAIL=1; }
 
 # PM2
-if ! command -v pm2 >/dev/null 2>&1; then
-    info "安装 PM2..."
-    npm install -g pm2 2>&1 | tail -1
-fi
+command -v pm2 >/dev/null 2>&1 || { info "安装 PM2..."; npm install -g pm2 2>&1 | tail -1; }
 info "  PM2: $(pm2 --version 2>&1)"
 
-if [ "$FAIL" -eq 1 ]; then
-    echo ""
-    error "环境不满足，请安装缺失组件后重试"
-fi
-
+[ "$FAIL" -eq 1 ] && { echo ""; error "环境不满足，请安装缺失组件后重试"; }
 info "环境检查通过 ✓"
 echo ""
 
@@ -78,51 +64,42 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 if [ -d "$SCRIPT_DIR/server" ] && [ -f "$SCRIPT_DIR/package.json" ]; then
     SRC_DIR="$SCRIPT_DIR"
 else
-    # 查找源码包
     ARCHIVE=$(ls "$SCRIPT_DIR"/hermes-dashboard-*.tar.gz 2>/dev/null | head -1)
-    if [ -n "$ARCHIVE" ]; then
-        info "解压: $ARCHIVE"
-        tar -xzf "$ARCHIVE" -C /root/
-        SRC_DIR="/root/hermes-dashboard"
-    else
-        error "找不到源码，请将 install.sh 放在源码目录或与 .tar.gz 同目录"
-    fi
+    [ -n "$ARCHIVE" ] || error "找不到源码"
+    info "解压: $ARCHIVE"
+    tar -xzf "$ARCHIVE" -C /root/
+    SRC_DIR="/root/hermes-dashboard"
 fi
-
 cd "$SRC_DIR"
+VENV_DIR="$SRC_DIR/.venv"
 info "源码: $SRC_DIR"
+
+# ── 创建虚拟环境 ──
+if [ ! -f "$VENV_DIR/bin/python" ]; then
+    info "创建 Python 虚拟环境..."
+    $PYTHON_BIN -m venv "$VENV_DIR"
+fi
+PIP="$VENV_DIR/bin/pip"
+PY="$VENV_DIR/bin/python"
+info "  venv: $VENV_DIR"
 echo ""
 
 # ── Python 依赖 ──
 WHEEL_DIR="$SRC_DIR/offline-deps/python"
-info "安装 Python 依赖 (使用 $PYTHON_BIN)..."
-
-set +e  # Allow pip failures without aborting
-_pip_install() {
-    if [ -d "$WHEEL_DIR" ] && ls "$WHEEL_DIR"/*.whl >/dev/null 2>&1; then
-        $PYTHON_BIN -m pip install --no-index --find-links="$WHEEL_DIR" fastapi uvicorn httpx bcrypt pyjwt pyyaml 2>&1
-    else
-        $PYTHON_BIN -m pip install -r "$SRC_DIR/requirements.txt" 2>&1
+info "安装 Python 依赖..."
+set +e
+if [ -d "$WHEEL_DIR" ] && ls "$WHEEL_DIR"/*.whl >/dev/null 2>&1; then
+    info "  尝试离线安装..."
+    OUT=$($PIP install --no-index --find-links="$WHEEL_DIR" fastapi uvicorn httpx bcrypt pyjwt pyyaml 2>&1)
+    if [ $? -ne 0 ]; then
+        warn "  离线失败，在线安装..."
+        $PIP install fastapi uvicorn httpx bcrypt pyjwt pyyaml 2>&1 | tail -3
     fi
-}
-
-PIP_OUT=$(_pip_install); PIP_RC=$?
-# If offline wheels failed (wrong arch), fall back to online
-if [ $PIP_RC -ne 0 ] && [ -d "$WHEEL_DIR" ] && ls "$WHEEL_DIR"/*.whl >/dev/null 2>&1; then
-    warn "离线 wheels 不可用（可能架构不匹配），尝试在线安装..."
-    $PYTHON_BIN -m pip install --break-system-packages -r "$SRC_DIR/requirements.txt" 2>&1 | tail -5
-elif echo "$PIP_OUT" | grep -q "externally-managed-environment\|--break-system-packages"; then
-    warn "检测到 PEP 668 保护，使用 --break-system-packages"
-    if [ -d "$WHEEL_DIR" ] && ls "$WHEEL_DIR"/*.whl >/dev/null 2>&1; then
-        $PYTHON_BIN -m pip install --break-system-packages --no-index --find-links="$WHEEL_DIR" fastapi uvicorn httpx bcrypt pyjwt pyyaml 2>&1 | tail -3
-    else
-        $PYTHON_BIN -m pip install --break-system-packages -r "$SRC_DIR/requirements.txt" 2>&1 | tail -3
-    fi
-elif [ -n "$PIP_OUT" ]; then
-    echo "$PIP_OUT" | tail -3
+else
+    $PIP install fastapi uvicorn httpx bcrypt pyjwt pyyaml 2>&1 | tail -3
 fi
-$PYTHON_BIN -c "import fastapi, uvicorn, httpx, jwt, bcrypt, yaml; print('  Python 依赖 OK')" || error "Python 依赖安装失败"
-set -e  # Re-enable strict mode
+set -e
+$PY -c "import fastapi, uvicorn, httpx, jwt, bcrypt, yaml; print('  Python 依赖 OK')" || error "Python 依赖安装失败"
 echo ""
 
 # ── Node 依赖 ──
@@ -145,23 +122,20 @@ echo ""
 
 # ── PM2 配置 ──
 info "配置 PM2..."
-API_KEY="your-api-key-$(date +%s)"
+API_KEY="hk-$(date +%s | md5sum | head -c 16)"
 if [ -f "$HOME/.hermes/.env" ]; then
     KEY=$(grep API_SERVER_KEY "$HOME/.hermes/.env" 2>/dev/null | cut -d'=' -f2- | tr -d '"' | tr -d "'" || echo "")
     [ -n "$KEY" ] && API_KEY="$KEY"
 fi
 sed -i "s|\"API_SERVER_KEY\": \".*\"|\"API_SERVER_KEY\": \"$API_KEY\"|" ecosystem.config.json 2>/dev/null || true
+# Use venv Python
+ESC_VENV=$(echo "$VENV_DIR/bin/python" | sed 's|/|\\/|g')
+sed -i "s|\"interpreter\": \"[^\"]*\"|\"interpreter\": \"$ESC_VENV\"|" ecosystem.config.json 2>/dev/null || true
 
 read -p "访问地址 (如 app.example.com 或 192.168.1.1:8080，回车跳过): " DOMAIN
-# 自动去掉协议前缀
 DOMAIN=$(echo "$DOMAIN" | sed 's|^https\?://||; s|/.*$||')
 if [ -n "$DOMAIN" ]; then
-    # 检测端口：含 : 的是非标准端口，用 http；否则用 https
-    if echo "$DOMAIN" | grep -q ":"; then
-        SCHEME="http"
-    else
-        SCHEME="https"
-    fi
+    if echo "$DOMAIN" | grep -q ":"; then SCHEME="http"; else SCHEME="https"; fi
     sed -i "s|\"NEXT_PUBLIC_API_URL\": \".*\"|\"NEXT_PUBLIC_API_URL\": \"$SCHEME://$DOMAIN\"|" ecosystem.config.json
 fi
 
@@ -176,19 +150,15 @@ if [ -f "$SRC_DIR/nginx-example.conf" ]; then
     [ -n "$DOMAIN" ] && sed -i "s|your-domain.com|$DOMAIN|g" "$SRC_DIR/nginx-example.conf"
     info "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
     info "Nginx 模板: $SRC_DIR/nginx-example.conf"
-    info "如需 SSL: 替换证书路径后执行:"
-    info "  cp $SRC_DIR/nginx-example.conf /etc/nginx/conf.d/hermes-dashboard.conf"
-    info "  nginx -t && nginx -s reload"
-    info ""
-    info "如 443 端口已占用，直接访问本地端口:"
-    info "  http://$(hostname -I 2>/dev/null | awk '{print $1}' || echo '127.0.0.1'):3000"
+    info "如需 SSL: cp nginx-example.conf /etc/nginx/conf.d/hermes-dashboard.conf"
+    info "如 443 占用, 直连: http://$(hostname -I 2>/dev/null | awk '{print $1}')"
     info "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 fi
 
 echo ""
 info "部署完成！"
 info "  登录: admin / hermes2026"
-info "  URL:  https://${DOMAIN:-你的IP}/login"
+[ -n "$DOMAIN" ] && info "  URL:  $SCHEME://$DOMAIN/login"
 warn "  请登录后立即修改密码！"
 echo ""
 pm2 status
