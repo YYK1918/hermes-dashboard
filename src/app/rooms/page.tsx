@@ -131,7 +131,9 @@ export default function RoomsPage() {
 
   // ── API helper ──
   const getApiBase = () => typeof window !== "undefined"
-    ? (window.location.port === "3000" ? "http://localhost:8643" : window.location.origin)
+    ? (window.location.port === "3000"
+        ? "http://localhost:8643"
+        : (process.env.NEXT_PUBLIC_API_URL || window.location.origin))
     : "http://localhost:8643"
 
   // ── Interject (user speaks during auto-run) ──

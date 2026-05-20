@@ -1,7 +1,9 @@
 import { useAuth } from "@/components/auth-context"
 
 const API_BASE = typeof window !== "undefined"
-  ? (process.env.NEXT_PUBLIC_API_URL || (window.location.port === "3000" ? "http://localhost:8643" : window.location.origin))
+  ? (window.location.port === "3000"
+      ? "http://localhost:8643"   // 直连开发模式，API 在本机 8643
+      : (process.env.NEXT_PUBLIC_API_URL || window.location.origin))  // Nginx 代理模式
   : (process.env.NEXT_PUBLIC_API_URL || "http://localhost:8643")
 
 export interface SystemStatus {
