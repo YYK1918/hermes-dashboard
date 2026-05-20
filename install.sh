@@ -103,7 +103,7 @@ echo ""
 WHEEL_DIR="$SRC_DIR/offline-deps/python"
 info "安装 Python 依赖 (使用 $PYTHON_BIN)..."
 
-# Try normal install, fall back to --break-system-packages for PEP 668
+set +e  # Allow pip failures without aborting
 _pip_install() {
     if [ -d "$WHEEL_DIR" ] && ls "$WHEEL_DIR"/*.whl >/dev/null 2>&1; then
         $PYTHON_BIN -m pip install --no-index --find-links="$WHEEL_DIR" fastapi uvicorn httpx bcrypt pyjwt pyyaml 2>&1
@@ -112,11 +112,9 @@ _pip_install() {
     fi
 }
 
-PIP_OUT=$(_pip_install) || true
-PIP_RC=$?
-
+PIP_OUT=$(_pip_install); PIP_RC=$?
 # If offline wheels failed (wrong arch), fall back to online
-if [ $PIP_RC -ne 0 ] && [ -d "$WHEEL_DIR" ]; then
+if [ $PIP_RC -ne 0 ] && [ -d "$WHEEL_DIR" ] && ls "$WHEEL_DIR"/*.whl >/dev/null 2>&1; then
     warn "离线 wheels 不可用（可能架构不匹配），尝试在线安装..."
     $PYTHON_BIN -m pip install --break-system-packages -r "$SRC_DIR/requirements.txt" 2>&1 | tail -5
 elif echo "$PIP_OUT" | grep -q "externally-managed-environment\|--break-system-packages"; then
@@ -130,6 +128,7 @@ elif [ -n "$PIP_OUT" ]; then
     echo "$PIP_OUT" | tail -3
 fi
 $PYTHON_BIN -c "import fastapi, uvicorn, httpx, jwt, bcrypt, yaml; print('  Python 依赖 OK')" || error "Python 依赖安装失败"
+set -e  # Re-enable strict mode
 echo ""
 
 # ── Node 依赖 ──
