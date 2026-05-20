@@ -113,7 +113,13 @@ _pip_install() {
 }
 
 PIP_OUT=$(_pip_install) || true
-if echo "$PIP_OUT" | grep -q "externally-managed-environment\|--break-system-packages"; then
+PIP_RC=$?
+
+# If offline wheels failed (wrong arch), fall back to online
+if [ $PIP_RC -ne 0 ] && [ -d "$WHEEL_DIR" ]; then
+    warn "离线 wheels 不可用（可能架构不匹配），尝试在线安装..."
+    $PYTHON_BIN -m pip install --break-system-packages -r "$SRC_DIR/requirements.txt" 2>&1 | tail -5
+elif echo "$PIP_OUT" | grep -q "externally-managed-environment\|--break-system-packages"; then
     warn "检测到 PEP 668 保护，使用 --break-system-packages"
     if [ -d "$WHEEL_DIR" ] && ls "$WHEEL_DIR"/*.whl >/dev/null 2>&1; then
         $PYTHON_BIN -m pip install --break-system-packages --no-index --find-links="$WHEEL_DIR" fastapi uvicorn httpx bcrypt pyjwt pyyaml 2>&1 | tail -3
