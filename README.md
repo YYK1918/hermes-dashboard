@@ -207,6 +207,33 @@ chmod +x install.sh
 
 > ⚠️ 离线包基于构建时的服务器架构（x86_64/Linux），目标服务器必须同架构。
 
+### 方式四：Docker 部署（推荐，一次构建到处运行）
+
+镜像约 250MB（Alpine），内置 node_modules + .next + Python venv。**构建仅需联网一次，运行完全离线。**
+
+**构建镜像**（联网机器上）：
+```bash
+docker compose build
+```
+
+**导出离线包**：
+```bash
+docker save hermes-dashboard:latest -o hermes-dashboard.tar
+```
+
+**离线机器加载并运行**：
+```bash
+docker load -i hermes-dashboard.tar
+
+docker run -d --name hermes-dashboard \
+  -p 3000:3000 -p 8643:8643 \
+  -v ~/.local/bin/hermes:/usr/local/bin/hermes:ro \
+  -v ~/.hermes:/root/.hermes \
+  hermes-dashboard:latest
+```
+
+访问 `http://IP:3000/login`。无需 npm install / pip install / npm run build。
+
 ### 访问模式说明
 
 | 模式 | 访问地址 | API 地址 | 需要 Nginx |
@@ -214,6 +241,7 @@ chmod +x install.sh
 | 直连 | `http://IP:3000` | `localhost:8643` | 不需要 |
 | 反代 | `https://域名` | 同域名（Nginx 转发） | 需要 |
 | 自定义端口 | `http://IP:8080` | 同域名端口 | 需要（监听该端口） |
+| Docker | `http://IP:3000` | 容器内 8643 | 不需要（直连） |
 
 端口 3000 直连时，无需配置 `NEXT_PUBLIC_API_URL`。自定义端口请在 Nginx 中配 `listen`。
 
