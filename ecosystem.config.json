@@ -3,8 +3,8 @@
     {
       "name": "hermes-api",
       "script": "server/api.py",
-      "interpreter": "python3",
-      "cwd": "/root/hermes-dashboard",
+      "interpreter": "/app/.venv/bin/python",
+      "cwd": "/app",
       "env": {
         "HERMES_NO_COLOR": "1",
         "API_SERVER_KEY": "your-api-server-key-here"
@@ -16,12 +16,12 @@
       "name": "hermes-dashboard",
       "script": "node_modules/.bin/next",
       "args": "start -p 3000",
-      "cwd": "/root/hermes-dashboard",
+      "cwd": "/app",
       "autorestart": true,
       "max_memory_restart": "500M",
       "env": {
         "NODE_ENV": "production",
-        "NEXT_PUBLIC_API_URL": "https://your-domain.com"
+        "NEXT_PUBLIC_API_URL": ""
       }
     }
   ]

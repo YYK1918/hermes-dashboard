@@ -1,0 +1,10 @@
+node_modules
+.next
+.git
+.hermes
+*.log
+.pm2
+.venv
+__pycache__
+*.pyc
+*.tar.gz

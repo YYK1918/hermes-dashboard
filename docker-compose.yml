@@ -1,0 +1,24 @@
+version: "3.8"
+
+services:
+  hermes-dashboard:
+    build: .
+    image: hermes-dashboard:latest
+    container_name: hermes-dashboard
+    ports:
+      - "3000:3000"
+      - "8643:8643"
+    volumes:
+      # 挂载宿主机 hermes 二进制
+      - /usr/local/bin/hermes:/usr/local/bin/hermes:ro
+      - /root/.local/bin/hermes:/root/.local/bin/hermes:ro
+      # 挂载 hermes 配置和数据
+      - ${HOME}/.hermes:/root/.hermes
+      # 挂载对话工作目录
+      - /tmp/hermes-chat:/tmp/hermes-chat
+      # 挂载自定义 skills
+      - ${HOME}/.hermes/skills:/root/.hermes/skills
+    environment:
+      - HERMES_NO_COLOR=1
+      - HERMES_YOLO_MODE=1
+    restart: unless-stopped
